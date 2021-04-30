@@ -3,6 +3,7 @@ import { parseMultipart } from '../utils/multipart/index.js'
 import * as pinata from '../pinata.js'
 import * as cluster from '../cluster.js'
 import * as nfts from '../models/nfts.js'
+import * as pins from '../models/pins.js'
 import { JSONResponse } from '../utils/json-response.js'
 import { validate } from '../utils/auth.js'
 
@@ -39,8 +40,6 @@ export async function upload(event) {
     /** @type {NFT} */
     const nft = {
       cid,
-      // @ts-ignore
-      size,
       created: created.toISOString(),
       type: 'directory',
       scope: tokenName,
@@ -48,26 +47,17 @@ export async function upload(event) {
         name: f.filename || f.name,
         type: f.contentType,
       })),
-      pin: {
-        cid,
-        // @ts-ignore
-        size,
-        status: 'pinned',
-        created: created.toISOString(),
-      },
     }
-    const metadata = {
-      pinStatus: 'pinned',
-      size,
-      created: created.toISOString(),
+    let pin = await pins.get(cid)
+    if (!pin || pin.status !== 'pinned') {
+      // @ts-ignore
+      pin = { status: 'pinned', size, created: created.toISOString() }
+      await pins.set(cid, pin)
     }
-    const result = await nfts.set({ user, cid }, nft, { metadata })
+    const result = await nfts.set({ user, cid }, nft)
     return new JSONResponse({
       ok: true,
-      value: {
-        ...result,
-        deals: { status: 'ongoing', deals: [] },
-      },
+      value: { ...result, size, pin, deals: [] },
     })
   } else {
     const blob = await event.request.blob()
@@ -91,33 +81,24 @@ export async function upload(event) {
     /** @type {NFT} */
     const nft = {
       cid,
-      size: blob.size,
       created: created.toISOString(),
       type: blob.type,
       scope: tokenName,
       files: [],
-      pin: {
-        cid,
-        // @ts-ignore
-        size,
-        status: 'pinned',
-        created: created.toISOString(),
-      },
     }
-    const result = await nfts.set({ user, cid }, nft, {
-      metadata: {
-        pinStatus: 'pinned',
+    let pin = await pins.get(cid)
+    if (!pin || pin.status !== 'pinned') {
+      pin = {
+        status: 'pinned',
         size: blob.size,
         created: created.toISOString(),
-      },
-    })
-
+      }
+      await pins.set(cid, pin)
+    }
+    const result = await nfts.set({ user, cid }, nft)
     return new JSONResponse({
       ok: true,
-      value: {
-        ...result,
-        deals: { status: 'ongoing', deals: [] },
-      },
+      value: { ...result, size: blob.size, pin, deals: [] },
     })
   }
 }
